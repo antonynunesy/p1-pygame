@@ -29,7 +29,8 @@ class Game():
             for j in range(4):
                 img = self.spritesheet.subsurface((j*32, i*32), (32, 32))
                 self.img_list.append(img)
-                
+        self.img_list.append(pygame.image.load(os.path.join(self.diretorio_img, "spritesheet.png")).convert_alpha())
+        self.img_list.append(pygame.image.load(os.path.join(self.diretorio_img, "spritesheet.png")).convert_alpha())
     
     def start(self):
             self.mostrar_texto("Pressione uma tecla para jogar", 32, cons.AMARELO, cons.MEIO_X, cons.MEIO_Y)
@@ -85,7 +86,7 @@ class Game():
     def reiniciar_jogo(self):
         self.jogando = False
         self.novo_jogo()
-         
+        
     
 
     def mostrar_texto(self, texto, tamanho, cor, x, y):
@@ -127,24 +128,26 @@ class Game():
 
         self.colisao_cenario = pygame.sprite.Group()
         self.colisao_caixas = pygame.sprite.Group()
+        self.colisao_botoes = pygame.sprite.Group()
         self.limites = pygame.sprite.Group()
 
         sensor_esq = spr.Plataforma_arbritaria(cons.LIXO-32, -160, 32, cons.ALTURA + 2*160)
         sensor_dir = spr.Plataforma_arbritaria(cons.LARGURA-cons.LIXO, -160, 32, cons.ALTURA + 2*160)
         self.tela_desligada = spr.Mundo_desligado()
-        back_ground_invert = spr.BackGround(0, cons.MEIO_Y)
+        self.divisao = spr.BackGround(0, cons.MEIO_Y-8, "P")
+        back_ground_invert = spr.BackGround(0, cons.MEIO_Y, "F")
 
         self.ler_layout()
         self.criar_mundo()
 
 
         self.back_gounds.add(back_ground_invert)
-        self.sprites_fixas.add(self.tela_desligada)
+        self.sprites_fixas.add(self.tela_desligada, self.divisao)
         self.limites.add(sensor_esq,sensor_dir)
 
 
         self.rodar()
-
+        self.game_over() #habilita o game over novamente
 
     def ler_layout(self):
         self.layout = []
@@ -167,21 +170,32 @@ class Game():
                     img = self.img_list[celula]
                     img_rect = img.get_rect()
 
-                    if celula <= 7 or celula == 15:
+                    if celula <= 9:
                         img_rect.topleft = (x*cons.TAMANHO_BLOCO, y*cons.TAMANHO_BLOCO)
                         bloco = spr.Plataforma(img, img_rect)
                         self.colisao_cenario.add(bloco)
                         self.sprites_dinamicas.add(bloco)
                     
-                    elif celula == 8:
+                    elif celula == 10:
                         img_rect.topleft = (x*cons.TAMANHO_BLOCO, y*cons.TAMANHO_BLOCO)
                         caixa = spr.Caixa(img, img_rect, cons.VEL_PLAYER)
                         self.colisao_caixas.add(caixa)
                         self.sprites_dinamicas.add(caixa)
 
-                    elif celula == 14:
+                    elif celula == 12:
+                        img_rect.topleft = (x*cons.TAMANHO_BLOCO, y*cons.TAMANHO_BLOCO)
+                        botao = spr.Botao([self.img_list[celula], self.img_list[celula+2]], img_rect)
+                        self.colisao_botoes.add(botao)
+                        self.sprites_dinamicas.add(botao)
+
+                    elif celula == 16:
                         self.agente = spr.Agente(x*cons.TAMANHO_BLOCO, y*cons.TAMANHO_BLOCO, 2)
                         self.sprites_fixas.add(self.agente)
+
+                    elif celula == 17:
+                        bloco = spr.Plataforma_arbritaria(x*cons.TAMANHO_BLOCO, y*cons.TAMANHO_BLOCO, cons.TAMANHO_BLOCO, cons.TAMANHO_BLOCO)
+                        self.colisao_cenario.add(bloco)
+                        self.sprites_dinamicas.add(bloco)
 
 
     def rodar(self):
@@ -203,11 +217,11 @@ class Game():
                 self.rodando = False
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_w:
-                    self.agente.pular(self.colisao_cenario)
+                    self.agente.pular(self.colisao_botoes)
                 if event.key == pygame.K_SPACE:
                     if self.agente.troca_mundo(self.colisao_cenario):
                         self.tela_desligada.rect.y = (self.tela_desligada.rect.y + cons.MEIO_Y) % cons.ALTURA
-                if event.key == pygame.K_ESCAPE:    #pausa
+                if event.key == pygame.K_ESCAPE:
                     self.pausar_jogo()
 
                 #MIGRARAR TROCA DE MUNDO PARA O ARQUIVO PRINCIPAL!!
@@ -219,16 +233,27 @@ class Game():
         self.sprites_fixas.update()
         self.sprites_dinamicas.update()
         self.colisao_cenario.update()
+        self.divisao.update()
 
         #atualizar ações
-        self.agente.movimento(self.colisao_cenario)
+        self.agente.movimento(self.colisao_cenario, self.colisao_caixas, self.colisao_botoes)
         self.tela_rolar = self.agente.borda(self.limites)
 
         for bloco in self.sprites_dinamicas:
             bloco.rect.x += self.tela_rolar
 
         for caixa in self.colisao_caixas:
-            caixa.movimento(self.colisao_cenario, [self.agente])
+            caixas_temp = self.colisao_caixas.copy()
+            caixas_temp.remove(caixa)
+            caixa.movimento(self.colisao_cenario, caixas_temp, [self.agente], self.colisao_botoes)
+            if caixa.morre([self.divisao]):
+                caixa.kill()
+
+        for botao in self.colisao_botoes:
+            botao.apertou(self.colisao_caixas, self.agente)
+
+        if self.agente.morre([self.divisao]):
+            self.jogando = False
 
     def desenhar_sprites(self):
         #desenhar sprites
@@ -236,13 +261,37 @@ class Game():
         self.back_gounds.draw(self.tela)
         self.sprites_dinamicas.draw(self.tela)
         self.sprites_fixas.draw(self.tela)
-
         
         pygame.display.flip()
 
 
     def game_over(self):
-        pass
+        esperando = True
+        while esperando and self.rodando:
+            self.clock.tick(cons.FPS)
+
+            # fundo escuro
+            self.tela.fill(cons.PRETO)
+
+            # mensagens
+            self.mostrar_texto("GAME OVER", 64, cons.VERMELHO, cons.MEIO_X, cons.MEIO_Y - 100)
+            self.mostrar_texto("Pressione R para Reiniciar", 32, cons.BRANCO, cons.MEIO_X, cons.MEIO_Y)
+            self.mostrar_texto("Pressione Q para Sair", 32, cons.BRANCO, cons.MEIO_X, cons.MEIO_Y + 60)
+
+            pygame.display.flip()
+
+            # capturar eventos
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    esperando = False
+                    self.rodando = False
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_r:
+                        esperando = False
+                        self.reiniciar_jogo()   # começa de novo
+                    elif event.key == pygame.K_q:
+                        esperando = False
+                        self.rodando = False    # encerra tudo
 
 
 
@@ -251,4 +300,4 @@ g.start()
 
 while g.rodando:
     g.novo_jogo()
-    g.game_over()
+    #g.game_over()
